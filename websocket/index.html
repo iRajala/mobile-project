@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>WebSockets</title>
+    <style>
+      #log {
+        width: 100%;
+        height: 5em;
+        overflow-y: auto;
+        background: #ccf7ff;
+        margin: 2em 0;
+      }
+
+      .notify {
+        color: #f7ab2f;
+      }
+
+      .event {
+        color: #21a2ed;
+      }
+
+      .setting {
+        color: #ed2121;
+      }
+
+      .card {
+        height: 10em;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <p>Client id: <span id="client-id"></span></p>
+    <div id="cards"></div>
+    <input type="text" placeholder="Message..." id="txtInput">
+    <select id="msgType">
+    </select>
+    <input type="text" placeholder="Action..." id="actionInput">
+    <button id="sendBtn">Send message</button>
+    <div id="log"></div>
+
+    <script>
+      var sock = new WebSocket("ws://localhost:5001");
+      var log = document.getElementById('log');
+      var CARDS = [];
+      var clientId = null;
+
+      const MESSAGE_TYPES = {
+        EVENT: 'event',
+        NOTIFY: 'notify',
+        SETTING: 'setting'
+      };
+
+      const SETTINGS = {
+        INIT: 'init',
+      };
+
+      const EVENTS = {
+        START: 'start',
+        SHARE_CARDS: 'shareCards',
+        START_TURN: 'startTurn',
+        DRAW_CARD: 'drawCard',
+        PUT_CARD: 'putCard',
+      };
+
+      const SUITS = {
+        PIKES: 'pikes',
+        CLOVERS: 'clovers',
+        HEARTS: 'hearts',
+        TILES: 'tiles'
+      };
+
+      class Card {
+        constructor(suit, number) {
+          this.suit = suit;
+          this.number = number;
+        }
+      };
+
+      class Message {
+        constructor(sender, type, action, message, data) {
+          this.sender = sender;
+          this.type = type;
+          this.action = action;
+          this.message = message;
+          this.data = data;
+        }
+      };
+
+      (function() {
+        Object.values(MESSAGE_TYPES).forEach(type => {
+          var opt = document.createElement('option');
+          opt.value = type;
+          opt.innerHTML = type;
+          document.getElementById('msgType').appendChild(opt);
+        });
+      })();
+
+      sock.onopen = function(event) {
+        console.log("Sock open");
+        setTimeout(function() {
+          // Register client
+          let message = JSON.stringify(new Message(clientId, MESSAGE_TYPES.SETTING, SETTINGS.INIT, null, null));
+          sock.send(message);
+        }, 1000);
+      };
+
+      sock.onmessage = function(event) {
+        let response = JSON.parse(event.data);
+        switch(response.type) {
+          case MESSAGE_TYPES.SETTING: {
+            handleSetting(response);
+          }break;
+          case MESSAGE_TYPES.EVENT: {
+            handleEvent(response);
+          }break;
+        };
+        consoleLog(response);
+      };
+
+      sock.onclose = function(event) {
+        console.log("Disconnected...");
+      };
+
+      document.getElementById('sendBtn').onclick = function() {
+        let type = document.getElementById('msgType').value;
+        let txtInput = document.getElementById('txtInput');
+        let actionInput = document.getElementById('actionInput');
+        let message = JSON.stringify(new Message(clientId, type, actionInput.value, txtInput.value, null));
+        sock.send(message);
+        txtInput.value = '';
+        actionInput.value = '';
+      };
+
+      function handleSetting(response) {
+        if (response.action == SETTINGS.INIT) {
+          clientId = response.data;
+          document.getElementById('client-id').innerHTML = clientId;
+        }
+      };
+
+      function handleEvent(response) {
+        if (response.action == EVENTS.SHARE_CARDS) {
+          CARDS = response.data;
+          updateCards();
+        } else if (response.action == EVENTS.DRAW_CARD) {
+          drawCard(response.data);
+        }
+      };
+
+      function drawCard(card) {
+        CARDS.push(card);
+        updateCards();
+      };
+
+      function updateCards() {
+        let cardContainer = document.getElementById('cards');
+        cardContainer.innerHTML = "";
+        CARDS.forEach(c => {
+          let card = new Card(c.suit, c.number);
+          cardContainer.innerHTML += `<img class="card" src="cards/${card.suit}${card.number}.png" alt="${card.suit}:${card.number}" onclick="cardClick(this.alt)">`;
+        });
+      };
+
+      function cardClick(cardInfo) {
+        let suit = cardInfo.substr(0, cardInfo.indexOf(':'));
+        let number = cardInfo.substr(cardInfo.indexOf(':') + 1, cardInfo.length - 1);
+        let card = new Card(suit, number);
+        removeFromDeck(card);
+        let message = JSON.stringify(new Message(clientId, MESSAGE_TYPES.EVENT, EVENTS.PUT_CARD, null, card));
+        sock.send(message);
+      };
+
+      function removeFromDeck(card) {
+        CARDS = CARDS.filter(function(c, index, arr){
+          return !(c.suit == card.suit && c.number == card.number);
+        });
+        updateCards();
+      };
+
+      function consoleLog(response) {
+        log.innerHTML += `<span class="${response.type}">${response.sender}: ${response.message}</span><br>`;
+      };
+    </script>
+    
+  </body>
+</html>
